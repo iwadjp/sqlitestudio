@@ -1,3 +1,5 @@
-/output*
-*.user
-.DS_Store
+﻿# ビルド生成物
+*.def
+*.o
+*.a
+output/

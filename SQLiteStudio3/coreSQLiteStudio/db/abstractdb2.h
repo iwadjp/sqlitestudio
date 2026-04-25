@@ -14,6 +14,7 @@
 #include <QDebug>
 #include <QMutexLocker>
 #include <QMutex>
+#include <QTextCodec>
 
 /**
  * @brief Complete implementation of SQLite 2 driver for SQLiteStudio.
@@ -48,6 +49,8 @@ class AbstractDb2 : public AbstractDb
 
         bool loadExtension(const QString& filePath, const QString& initFunc = QString());
         bool isComplete(const QString& sql) const;
+
+        virtual QString getEncoding() const { return "UTF-8"; }
 
     protected:
         bool isOpenInternal();
@@ -711,7 +714,8 @@ int AbstractDb2<T>::Query::bindParam(int paramIdx, const QVariant& value)
         }
         default:
         {
-            QByteArray ba = value.toString().toUtf8();
+            QTextCodec* codec = QTextCodec::codecForName(db->getEncoding().toLatin1());
+            QByteArray ba = codec ? codec->fromUnicode(value.toString()) : value.toString().toUtf8();
             ba.append('\0');
             return sqlite_bind(stmt, paramIdx, ba.constData(), ba.size(), true);
         }
@@ -871,10 +875,13 @@ int AbstractDb2<T>::Query::fetchNext()
     nextRowValues.clear();
     if (rowAvailable)
     {
+        QTextCodec* codec = QTextCodec::codecForName(db->getEncoding().toLatin1());
         for (int i = 0; i < colCount; i++)
         {
             if (isBinaryColumn(i))
                 nextRowValues << QByteArray(values[i]);
+            else if (codec)
+                nextRowValues << codec->toUnicode(values[i]);
             else
                 nextRowValues << QString::fromUtf8(values[i]);
         }
@@ -888,10 +895,12 @@ void AbstractDb2<T>::Query::init(int columnsCount, const char** columns)
 {
     colCount = columnsCount;
 
+    QTextCodec* codec = QTextCodec::codecForName(db->getEncoding().toLatin1());
     TokenList columnDescription;
     for (int i = 0; i < colCount; i++)
     {
-        columnDescription = Lexer::tokenize(QString::fromUtf8(columns[i]), Dialect::Sqlite2).filterWhiteSpaces();
+        QString colStr = codec ? codec->toUnicode(columns[i]) : QString::fromUtf8(columns[i]);
+        columnDescription = Lexer::tokenize(colStr, Dialect::Sqlite2).filterWhiteSpaces();
         if (columnDescription.size() > 0)
         {
             // If the column is prefixed with dbname and table name, then we remove them.

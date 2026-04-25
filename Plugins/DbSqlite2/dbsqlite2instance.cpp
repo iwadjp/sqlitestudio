@@ -7,7 +7,7 @@ DbSqlite2Instance::DbSqlite2Instance(const QString& name, const QString& path, c
 {
 }
 
-QString DbSqlite2Instance::getEncoding()
+QString DbSqlite2Instance::getEncoding() const
 {
     return connOptions.value(ENCODING_OPT, "UTF-8").toString();
 }

@@ -11,7 +11,15 @@ DbSqlite2::DbSqlite2()
 
 QList<DbPluginOption> DbSqlite2::getOptionsList() const
 {
-    return QList<DbPluginOption>();
+    DbPluginOption opt;
+    opt.key = DbSqlite2Instance::ENCODING_OPT;
+    opt.label = tr("Encoding");
+    opt.toolTip = tr("Text encoding of the database (e.g. UTF-8, CP932, EUC-JP)");
+    opt.type = DbPluginOption::CHOICE;
+    opt.choiceValues = QStringList() << "UTF-8" << "CP932" << "EUC-JP" << "ISO-8859-1";
+    opt.choiceReadOnly = false;
+    opt.defaultValue = "UTF-8";
+    return QList<DbPluginOption>() << opt;
 }
 
 bool DbSqlite2::init()

@@ -24,7 +24,7 @@ class DbSqlite2Instance : public AbstractDb2<Sqlite2>
         DbSqlite2Instance(const QString& name, const QString& path, const QHash<QString, QVariant>& connOptions);
 
         static const QString ENCODING_OPT;
-        QString getEncoding() const;
+        QString getPluginEncoding() const override;
 };
 
 #endif // DBSQLITE2INSTANCE_H

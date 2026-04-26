@@ -50,7 +50,7 @@ class AbstractDb2 : public AbstractDb
         bool loadExtension(const QString& filePath, const QString& initFunc = QString());
         bool isComplete(const QString& sql) const;
 
-        virtual QString getEncoding() const { return "UTF-8"; }
+        virtual QString getPluginEncoding() const { return "UTF-8"; }
 
     protected:
         bool isOpenInternal();
@@ -123,6 +123,7 @@ class AbstractDb2 : public AbstractDb
         void resetError();
         QString freeStatement(sqlite_vm* stmt);
 
+        static QTextCodec* resolveCodec(const QString& enc);
         static void storeResult(sqlite_func* func, const QVariant& result, bool ok);
         static QList<QVariant> getArgs(int argCount, const char** args);
         static void evaluateScalar(sqlite_func* func, int argCount, const char** args);
@@ -425,6 +426,25 @@ void AbstractDb2<T>::storeResult(sqlite_func* func, const QVariant& result, bool
 }
 
 template <class T>
+QTextCodec* AbstractDb2<T>::resolveCodec(const QString& enc)
+{
+    QTextCodec* codec = QTextCodec::codecForName(enc.toLatin1());
+    if (!codec)
+    {
+        // Qt 5 does not register "CP932" or "Windows-31J"; map to Shift_JIS
+        static const QHash<QString,QByteArray> qtNames = {
+            {"CP932",       "Shift_JIS"},
+            {"Windows-31J", "Shift_JIS"},
+            {"WINDOWS-31J", "Shift_JIS"},
+        };
+        auto it = qtNames.find(enc);
+        if (it != qtNames.end())
+            codec = QTextCodec::codecForName(it.value());
+    }
+    return codec;
+}
+
+template <class T>
 QList<QVariant> AbstractDb2<T>::getArgs(int argCount, const char** args)
 {
     QList<QVariant> results;
@@ -714,7 +734,7 @@ int AbstractDb2<T>::Query::bindParam(int paramIdx, const QVariant& value)
         }
         default:
         {
-            QTextCodec* codec = QTextCodec::codecForName(db->getEncoding().toLatin1());
+            QTextCodec* codec = resolveCodec(db->getPluginEncoding());
             QByteArray ba = codec ? codec->fromUnicode(value.toString()) : value.toString().toUtf8();
             ba.append('\0');
             return sqlite_bind(stmt, paramIdx, ba.constData(), ba.size(), true);
@@ -875,7 +895,7 @@ int AbstractDb2<T>::Query::fetchNext()
     nextRowValues.clear();
     if (rowAvailable)
     {
-        QTextCodec* codec = QTextCodec::codecForName(db->getEncoding().toLatin1());
+        QTextCodec* codec = resolveCodec(db->getPluginEncoding());
         for (int i = 0; i < colCount; i++)
         {
             if (isBinaryColumn(i))
@@ -895,7 +915,7 @@ void AbstractDb2<T>::Query::init(int columnsCount, const char** columns)
 {
     colCount = columnsCount;
 
-    QTextCodec* codec = QTextCodec::codecForName(db->getEncoding().toLatin1());
+    QTextCodec* codec = resolveCodec(db->getPluginEncoding());
     TokenList columnDescription;
     for (int i = 0; i < colCount; i++)
     {

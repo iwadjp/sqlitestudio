@@ -124,8 +124,8 @@ class AbstractDb2 : public AbstractDb
         QString freeStatement(sqlite_vm* stmt);
 
         static QTextCodec* resolveCodec(const QString& enc);
-        static void storeResult(sqlite_func* func, const QVariant& result, bool ok);
-        static QList<QVariant> getArgs(int argCount, const char** args);
+        static void storeResult(sqlite_func* func, const QVariant& result, bool ok, QTextCodec* codec = nullptr);
+        static QList<QVariant> getArgs(int argCount, const char** args, QTextCodec* codec = nullptr);
         static void evaluateScalar(sqlite_func* func, int argCount, const char** args);
         static void evaluateAggregateStep(sqlite_func* func, int argCount, const char** args);
         static void evaluateAggregateFinal(sqlite_func* func);
@@ -361,11 +361,15 @@ void AbstractDb2<T>::resetError()
 }
 
 template <class T>
-void AbstractDb2<T>::storeResult(sqlite_func* func, const QVariant& result, bool ok)
+void AbstractDb2<T>::storeResult(sqlite_func* func, const QVariant& result, bool ok, QTextCodec* codec)
 {
+    auto encode = [codec](const QString& str) -> QByteArray {
+        return codec ? codec->fromUnicode(str) : str.toUtf8();
+    };
+
     if (!ok)
     {
-        QByteArray ba = result.toString().toUtf8();
+        QByteArray ba = encode(result.toString());
         sqlite_set_result_error(func, ba.constData(), ba.size());
         return;
     }
@@ -405,20 +409,20 @@ void AbstractDb2<T>::storeResult(sqlite_func* func, const QVariant& result, bool
             for (const QVariant& v : list)
                 strList << v.toString();
 
-            QByteArray ba = strList.join(" ").toUtf8();
+            QByteArray ba = encode(strList.join(" "));
             sqlite_set_result_string(func, ba.constData(), ba.size());
             break;
         }
         case QVariant::StringList:
         {
-            QByteArray ba = result.toStringList().join(" ").toUtf8();
+            QByteArray ba = encode(result.toStringList().join(" "));
             sqlite_set_result_string(func, ba.constData(), ba.size());
             break;
         }
         default:
         {
             // SQLITE_TRANSIENT makes sure that sqlite buffers the data
-            QByteArray ba = result.toString().toUtf8();
+            QByteArray ba = encode(result.toString());
             sqlite_set_result_string(func, ba.constData(), ba.size());
             break;
         }
@@ -445,7 +449,7 @@ QTextCodec* AbstractDb2<T>::resolveCodec(const QString& enc)
 }
 
 template <class T>
-QList<QVariant> AbstractDb2<T>::getArgs(int argCount, const char** args)
+QList<QVariant> AbstractDb2<T>::getArgs(int argCount, const char** args, QTextCodec* codec)
 {
     QList<QVariant> results;
 
@@ -457,7 +461,7 @@ QList<QVariant> AbstractDb2<T>::getArgs(int argCount, const char** args)
             continue;
         }
 
-        results << QString::fromUtf8(args[i]);
+        results << (codec ? codec->toUnicode(args[i]) : QString::fromUtf8(args[i]));
     }
     return results;
 }
@@ -465,20 +469,25 @@ QList<QVariant> AbstractDb2<T>::getArgs(int argCount, const char** args)
 template <class T>
 void AbstractDb2<T>::evaluateScalar(sqlite_func* func, int argCount, const char** args)
 {
-    QList<QVariant> argList = getArgs(argCount, args);
+    // userData->db is always AbstractDb2<T>* — safe cast since this callback is only
+    // registered via AbstractDb2<T>::registerScalarFunction() which sets db = this.
+    FunctionUserData* userData = static_cast<FunctionUserData*>(sqlite_user_data(func));
+    QTextCodec* codec = resolveCodec(static_cast<AbstractDb2<T>*>(userData->db)->getPluginEncoding());
+    QList<QVariant> argList = getArgs(argCount, args, codec);
     bool ok = true;
-    QVariant result = AbstractDb::evaluateScalar(sqlite_user_data(func), argList, ok);
-    storeResult(func, result, ok);
+    QVariant result = AbstractDb::evaluateScalar(userData, argList, ok);
+    storeResult(func, result, ok, codec);
 }
 
 template <class T>
 void AbstractDb2<T>::evaluateAggregateStep(sqlite_func* func, int argCount, const char** args)
 {
-    void* dataPtr = sqlite_user_data(func);
-    QList<QVariant> argList = getArgs(argCount, args);
+    FunctionUserData* userData = static_cast<FunctionUserData*>(sqlite_user_data(func));
+    QTextCodec* codec = resolveCodec(static_cast<AbstractDb2<T>*>(userData->db)->getPluginEncoding());
+    QList<QVariant> argList = getArgs(argCount, args, codec);
     QHash<QString,QVariant> aggregateContext = getAggregateContext(func);
 
-    AbstractDb::evaluateAggregateStep(dataPtr, aggregateContext, argList);
+    AbstractDb::evaluateAggregateStep(userData, aggregateContext, argList);
 
     setAggregateContext(func, aggregateContext);
 }
@@ -486,13 +495,14 @@ void AbstractDb2<T>::evaluateAggregateStep(sqlite_func* func, int argCount, cons
 template <class T>
 void AbstractDb2<T>::evaluateAggregateFinal(sqlite_func* func)
 {
-    void* dataPtr = sqlite_user_data(func);
+    FunctionUserData* userData = static_cast<FunctionUserData*>(sqlite_user_data(func));
+    QTextCodec* codec = resolveCodec(static_cast<AbstractDb2<T>*>(userData->db)->getPluginEncoding());
     QHash<QString,QVariant> aggregateContext = getAggregateContext(func);
 
     bool ok = true;
-    QVariant result = AbstractDb::evaluateAggregateFinal(dataPtr, aggregateContext, ok);
+    QVariant result = AbstractDb::evaluateAggregateFinal(userData, aggregateContext, ok);
 
-    storeResult(func, result, ok);
+    storeResult(func, result, ok, codec);
     releaseAggregateContext(func);
 }
 

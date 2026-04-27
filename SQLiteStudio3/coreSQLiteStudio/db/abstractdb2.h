@@ -576,7 +576,9 @@ int AbstractDb2<T>::Query::prepareStmt(const QString& processedQuery)
 {
     char* errMsg = nullptr;
     const char* tail;
-    QByteArray queryBytes = processedQuery.toUtf8();
+    // Encode SQL using the DB's encoding so that string literals in LIKE/WHERE match stored bytes.
+    QTextCodec* codec = resolveCodec(db->getPluginEncoding());
+    QByteArray queryBytes = codec ? codec->fromUnicode(processedQuery) : processedQuery.toUtf8();
     QMutexLocker mutexLocker(db->dbOperMutex);
     int res = sqlite_compile(db->dbHandle, queryBytes.constData(), &tail, &stmt, &errMsg);
     if (res != SQLITE_OK)
